@@ -14,7 +14,6 @@
         ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
         
-        /* Estilo para o select ficar com cara de corretora */
         select {
             -webkit-appearance: none;
             -moz-appearance: none;
@@ -33,8 +32,8 @@
 
         let precoAoVivoFormulario = 0;
         let graficoAlocacao = null;
+        let abaAtiva = 'COMPRA'; // Controla o estado interno do formulário: COMPRA ou VENDA
 
-        // Catálogo de Moedas Suportadas pela nossa Fintech
         const ativosSuportados = [
             { ticker: '', nome: 'Selecione um ativo...' },
             { ticker: 'BTC', nome: 'Bitcoin' },
@@ -47,9 +46,9 @@
             { ticker: 'MATIC', nome: 'Polygon' }
         ];
 
-        // Preenche o seletor (dropdown) quando a página carrega
         function inicializarCatalogo() {
             const seletor = document.getElementById('seletor-moeda');
+            seletor.innerHTML = '';
             ativosSuportados.forEach(ativo => {
                 const option = document.createElement('option');
                 option.value = ativo.ticker;
@@ -74,7 +73,6 @@
             graficoAlocacao.render();
         }
 
-        // Agora essa função é ativada quando você CLICA na moeda no seletor
         async function buscarCotacaoFormulario() {
             const ticker = document.getElementById('seletor-moeda').value;
             const divCotacao = document.getElementById('box-cotacao');
@@ -89,34 +87,86 @@
                         
                         divCotacao.classList.remove('hidden');
                         spanCotacao.innerText = formatarMoeda(precoAoVivoFormulario);
-                        spanCotacao.classList.add('text-emerald-400');
-                        spanCotacao.classList.remove('text-red-400');
+                        spanCotacao.className = "font-bold font-mono " + (abaAtiva === 'COMPRA' ? "text-emerald-400" : "text-rose-400");
                         
                         calcularQuantidadeEstimada();
                     } else {
                         spanCotacao.innerText = "Par indisponível";
-                        spanCotacao.classList.add('text-red-400');
-                        spanCotacao.classList.remove('text-emerald-400');
+                        spanCotacao.className = "font-bold font-mono text-red-400";
                         precoAoVivoFormulario = 0;
-                        document.getElementById('qtd-estimada').innerText = "0.00000000";
+                        resetarEstimado();
                     }
                 } catch (e) {}
             } else {
                 divCotacao.classList.add('hidden');
                 precoAoVivoFormulario = 0;
-                document.getElementById('qtd-estimada').innerText = "0.00000000";
+                resetarEstimado();
             }
         }
 
+        function alternarAba(aba) {
+            abaAtiva = aba;
+            const btnComprar = document.getElementById('btn-aba-comprar');
+            const btnVender = document.getElementById('btn-aba-vender');
+            const labelInput = document.getElementById('label-input-dinamico');
+            const inputSimbolo = document.getElementById('input-simbolo-dinamico');
+            const inputField = document.querySelector('input[name="valor_operar"]');
+            const labelEstimado = document.getElementById('label-estimado-dinamico');
+            const btnSubmit = document.getElementById('btn-submit-operacao');
+
+            inputField.value = '';
+            resetarEstimado();
+
+            if(aba === 'COMPRA') {
+                btnComprar.className = "flex-1 py-4 text-sm font-bold text-emerald-500 border-b-2 border-emerald-500";
+                btnVender.className = "flex-1 py-4 text-sm font-bold text-gray-500 hover:text-gray-300 transition";
+                labelInput.innerText = "Total a Investir";
+                inputSimbolo.innerText = "R$";
+                labelEstimado.innerText = "Recebimento Estimado";
+                btnSubmit.innerText = "Comprar a Mercado";
+                btnSubmit.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition duration-200 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex justify-center items-center gap-2 mt-2";
+            } else {
+                btnComprar.className = "flex-1 py-4 text-sm font-bold text-gray-500 hover:text-gray-300 transition";
+                btnVender.className = "flex-1 py-4 text-sm font-bold text-rose-500 border-b-2 border-rose-500";
+                labelInput.innerText = "Quantidade a Vender";
+                inputSimbolo.innerText = "Qtd";
+                labelEstimado.innerText = "Recebimento Estimado";
+                btnSubmit.innerText = "Vender a Mercado";
+                btnSubmit.className = "w-full bg-rose-600 hover:bg-rose-500 text-white font-bold py-4 rounded-lg transition duration-200 shadow-[0_0_15px_rgba(244,63,94,0.15)] flex justify-center items-center gap-2 mt-2";
+            }
+            buscarCotacaoFormulario();
+        }
+
         function calcularQuantidadeEstimada() {
-            const valorInvestir = parseFloat(document.querySelector('input[name="valor_investir"]').value);
+            const valor = parseFloat(document.querySelector('input[name="valor_operar"]').value);
             const spanQtd = document.getElementById('qtd-estimada');
             
-            if (valorInvestir > 0 && precoAoVivoFormulario > 0) {
-                const qtd = valorInvestir / precoAoVivoFormulario;
-                spanQtd.innerText = qtd.toFixed(8);
+            if (valor > 0 && precoAoVivoFormulario > 0) {
+                if (abaAtiva === 'COMPRA') {
+                    const qtd = valor / precoAoVivoFormulario;
+                    spanQtd.innerText = qtd.toFixed(8);
+                } else {
+                    const brl = valor * precoAoVivoFormulario;
+                    spanQtd.innerText = formatarMoeda(brl);
+                }
             } else {
-                spanQtd.innerText = "0.00000000";
+                resetarEstimado();
+            }
+        }
+
+        function resetarEstimado() {
+            document.getElementById('qtd-estimada').innerText = abaAtiva === 'COMPRA' ? "0.00000000" : "R$ 0,00";
+        }
+
+        async function carregarSaldoUsuario() {
+            try {
+                const response = await fetch('http://localhost:8080/usuario');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('saldo-brl').innerText = formatarMoeda(data.saldo_brl);
+                }
+            } catch (error) {
+                console.error("Erro ao carregar saldo BRL:", error);
             }
         }
 
@@ -130,7 +180,6 @@
                 
                 let saldoTotalAtual = 0;
                 let lucroPrejuizoTotal = 0;
-                let totalAtivos = 0;
 
                 let chartLabels = [];
                 let chartSeries = [];
@@ -149,11 +198,10 @@
                     const valorInvestido = ativo.qtd_total * ativo.preco_medio;
                     const valorAtual = ativo.qtd_total * precoAoVivo;
                     const pnlReais = valorAtual - valorInvestido;
-                    const pnlPorcentagem = (pnlReais / valorInvestido) * 100;
+                    const pnlPorcentagem = valorInvestido > 0 ? (pnlReais / valorInvestido) * 100 : 0;
                     
                     saldoTotalAtual += valorAtual;
                     lucroPrejuizoTotal += pnlReais;
-                    totalAtivos++;
 
                     if(valorAtual > 0) {
                         chartLabels.push(ativo.ticker);
@@ -197,7 +245,7 @@
                 
                 document.getElementById('saldo-total').innerHTML = `
                     ${formatarMoeda(saldoTotalAtual)} 
-                    <span class="text-sm ${corLucroTotal} font-medium flex items-center gap-1 mt-1">
+                    <span class="text-xs ${corLucroTotal} font-medium flex items-center gap-1 mt-1">
                         <i class="ph-bold ph-trend-${lucroPrejuizoTotal >= 0 ? 'up' : 'down'}"></i>
                         ${sinalLucroTotal}${formatarMoeda(lucroPrejuizoTotal)} Retorno
                     </span>
@@ -213,60 +261,102 @@
         function deletarMoeda(idCarteira) {
             if(confirm("Confirma a liquidação total desta posição a mercado?")) {
                 fetch(`http://localhost:8080/cripto/${idCarteira}`, { method: 'DELETE' })
-                    .then(() => carregarMoedas());
+                    .then(() => {
+                        carregarMoedas();
+                        carregarSaldoUsuario();
+                    });
             }
         }
 
-        function salvarCripto(event) {
+        function processarOperacao(event) {
             event.preventDefault(); 
             
             const ticker = document.getElementById('seletor-moeda').value;
-            // Busca o nome correto da moeda baseado no ticker escolhido
             const ativoSelecionado = ativosSuportados.find(a => a.ticker === ticker);
             const nome = ativoSelecionado ? ativoSelecionado.nome : '';
-            
-            const valorInvestido = parseFloat(document.querySelector('input[name="valor_investir"]').value);
+            const valorInput = parseFloat(document.querySelector('input[name="valor_operar"]').value);
             
             if (ticker === '' || precoAoVivoFormulario <= 0) {
                 alert("Por favor, selecione um ativo válido do catálogo.");
                 return;
             }
 
-            const quantidadeComprada = valorInvestido / precoAoVivoFormulario;
+            if (abaAtiva === 'COMPRA') {
+                const quantidadeComprada = valorInput / precoAoVivoFormulario;
+                const ordem = {
+                    nome_moeda: nome,
+                    ticker_moeda: ticker,
+                    quantidade: quantidadeComprada,
+                    preco_compra: precoAoVivoFormulario 
+                };
 
-            const ordem = {
-                nome_moeda: nome,
-                ticker_moeda: ticker,
-                quantidade: quantidadeComprada,
-                preco_compra: precoAoVivoFormulario 
-            };
+                fetch('http://localhost:8080/cripto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ordem)
+                }).then(async res => {
+                    const responseJson = await res.json();
+                    if (responseJson.resultado === "FALHA_SALDO") {
+                        alert("Erro: Saldo em conta BRL insuficiente!");
+                    } else {
+                        concluirSucessoVisual();
+                    }
+                });
+            } else {
+                // Nova rota de processamento de Venda do backend
+                const ordemVenda = {
+                    venda_ticker: ticker,
+                    venda_qtd: valorInput,
+                    venda_preco: precoAoVivoFormulario
+                };
 
-            fetch('http://localhost:8080/cripto', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(ordem)
-            }).then(() => {
-                document.getElementById('formCripto').reset();
-                document.getElementById('box-cotacao').classList.add('hidden');
-                document.getElementById('qtd-estimada').innerText = "0.00000000";
-                carregarMoedas();
-                
-                const btn = document.getElementById('btn-comprar');
-                const originalText = btn.innerHTML;
-                btn.innerHTML = `<i class="ph-bold ph-check-circle text-xl"></i> Executada`;
-                btn.classList.replace('bg-emerald-600', 'bg-emerald-500');
-                setTimeout(() => { 
-                    btn.innerHTML = originalText; 
-                    btn.classList.replace('bg-emerald-500', 'bg-emerald-600');
-                }, 2000);
-            });
+                fetch('http://localhost:8080/cripto/vender', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ordemVenda)
+                }).then(async res => {
+                    const responseJson = await res.json();
+                    if (responseJson.resultado === "FALHA_SALDO_INSUFICIENTE") {
+                        alert("Erro: Você não possui saldo suficiente deste ativo para vender.");
+                    } else if (responseJson.resultado === "FALHA_ATIVO_NAO_ENCONTRADO") {
+                        alert("Erro: Você não possui posições deste ativo na sua carteira.");
+                    } else {
+                        concluirSucessoVisual();
+                    }
+                });
+            }
+        }
+
+        function concluirSucessoVisual() {
+            document.getElementById('formCripto').reset();
+            document.getElementById('box-cotacao').classList.add('hidden');
+            resetarEstimado();
+            carregarMoedas();
+            carregarSaldoUsuario();
+            
+            const btn = document.getElementById('btn-submit-operacao');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="ph-bold ph-check-circle text-xl"></i> Executada`;
+            
+            const corOriginal = abaAtiva === 'COMPRA' ? 'bg-emerald-600' : 'bg-rose-600';
+            const corSucesso = abaAtiva === 'COMPRA' ? 'bg-emerald-500' : 'bg-rose-500';
+            
+            btn.classList.replace(corOriginal, corSucesso);
+            setTimeout(() => { 
+                btn.innerHTML = originalText; 
+                btn.classList.replace(corSucesso, corOriginal);
+            }, 2000);
         }
 
         window.onload = () => {
             inicializarCatalogo();
             initChart();
             carregarMoedas();
-            setInterval(carregarMoedas, 10000); 
+            carregarSaldoUsuario();
+            setInterval(() => {
+                carregarMoedas();
+                carregarSaldoUsuario();
+            }, 10000); 
         };
     </script>
 </head>
@@ -319,7 +409,7 @@
             <div class="flex items-center gap-4 text-sm">
                 <span class="flex items-center gap-2 text-gray-400 bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-700">
                     <i class="ph-bold ph-broadcast text-emerald-500"></i>
-                    API Binance: <span class="text-white font-medium">Online</span>
+                    API Core (Servant): <span class="text-white font-medium">Online</span>
                 </span>
             </div>
         </header>
@@ -328,15 +418,20 @@
             <div class="flex flex-col xl:flex-row gap-6">
                 
                 <div class="flex-1 space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="bg-[#11141A] p-6 rounded-xl border border-gray-800 relative overflow-hidden">
-                            <h3 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">Valor Estimado (BRL)</h3>
-                            <p id="saldo-total" class="text-3xl font-bold text-white font-mono">R$ 0,00</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-[#11141A] p-5 rounded-xl border border-gray-800 flex flex-col justify-center">
+                            <h3 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">Patrimônio Cripto (BRL)</h3>
+                            <p id="saldo-total" class="text-2xl font-bold text-white font-mono">R$ 0,00</p>
+                        </div>
+
+                        <div class="bg-[#11141A] p-5 rounded-xl border border-gray-800 flex flex-col justify-center">
+                            <h3 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">Saldo Disponível (BRL)</h3>
+                            <p id="saldo-brl" class="text-2xl font-bold text-emerald-400 font-mono">R$ 0,00</p>
                         </div>
                         
-                        <div class="bg-[#11141A] p-6 rounded-xl border border-gray-800 relative flex flex-col justify-center">
-                            <h3 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">Diversificação de Ativos</h3>
-                            <div id="chart-alocacao" class="w-full flex justify-center -ml-4"></div>
+                        <div class="bg-[#11141A] p-4 rounded-xl border border-gray-800 flex flex-col justify-center items-center">
+                            <h3 class="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-1 self-start">Alocação</h3>
+                            <div id="chart-alocacao" class="w-full flex justify-center"></div>
                         </div>
                     </div>
 
@@ -369,44 +464,44 @@
                     <div class="bg-[#11141A] rounded-xl border border-gray-800 sticky top-0">
                         
                         <div class="flex border-b border-gray-800">
-                            <button class="flex-1 py-4 text-sm font-bold text-emerald-500 border-b-2 border-emerald-500">Comprar</button>
-                            <button class="flex-1 py-4 text-sm font-bold text-gray-500 hover:text-gray-300 transition cursor-not-allowed" title="Venda em breve">Vender</button>
+                            <button id="btn-aba-comprar" onclick="alternarAba('COMPRA')" class="flex-1 py-4 text-sm font-bold text-emerald-500 border-b-2 border-emerald-500">Comprar</button>
+                            <button id="btn-aba-vender" onclick="alternarAba('VENDA')" class="flex-1 py-4 text-sm font-bold text-gray-500 hover:text-gray-300 transition">Vender</button>
                         </div>
 
                         <div class="p-6">
-                            <form id="formCripto" onsubmit="salvarCripto(event)" class="flex flex-col gap-5">
+                            <form id="formCripto" onsubmit="processarOperacao(event)" class="flex flex-col gap-5">
                                 
                                 <div>
                                     <div class="flex justify-between items-center mb-1">
                                         <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Selecione o Ativo</label>
                                     </div>
                                     <select id="seletor-moeda" onchange="buscarCotacaoFormulario()" class="w-full bg-[#0B0E14] text-white border border-gray-700 rounded-lg pl-4 pr-10 py-3.5 focus:outline-none focus:border-emerald-500 font-bold uppercase transition cursor-pointer" required>
-                                        </select>
+                                    </select>
                                 </div>
                                 
-                                <div id="box-cotacao" class="hidden bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-lg flex justify-between items-center">
-                                    <span class="text-[10px] text-emerald-500 uppercase font-bold tracking-wider flex items-center gap-1">
-                                        <i class="ph-bold ph-lightning"></i> Cotação a Mercado
+                                <div id="box-cotacao" class="hidden bg-gray-800/50 border border-gray-700 p-3 rounded-lg flex justify-between items-center">
+                                    <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                                        <i class="ph-bold ph-lightning text-amber-500"></i> Cotação a Mercado
                                     </span>
-                                    <span id="valor-cotacao-atual" class="font-bold font-mono text-emerald-400">R$ 0,00</span>
+                                    <span id="valor-cotacao-atual" class="font-bold font-mono">R$ 0,00</span>
                                 </div>
 
                                 <div>
                                     <div class="flex justify-between items-center mb-1">
-                                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total a Investir</label>
+                                        <label id="label-input-dinamico" class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total a Investir</label>
                                     </div>
                                     <div class="relative">
-                                        <input type="number" step="any" name="valor_investir" onkeyup="calcularQuantidadeEstimada()" placeholder="0.00" class="w-full bg-[#0B0E14] text-white border border-gray-700 rounded-lg pl-12 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 font-mono text-lg transition" required>
-                                        <div class="absolute left-4 top-4 text-gray-400 font-bold">R$</div>
+                                        <input type="number" step="any" name="valor_operar" onkeyup="calcularQuantidadeEstimada()" placeholder="0.00" class="w-full bg-[#0B0E14] text-white border border-gray-700 rounded-lg pl-14 pr-4 py-3.5 focus:outline-none focus:border-emerald-500 font-mono text-lg transition" required>
+                                        <div id="input-simbolo-dinamico" class="absolute left-4 top-4 text-gray-500 font-bold text-sm">R$</div>
                                     </div>
                                 </div>
 
                                 <div class="bg-[#0B0E14] rounded-lg p-4 border border-gray-800 flex justify-between items-center mt-2">
-                                    <span class="text-xs text-gray-400">Recebimento Estimado</span>
+                                    <span id="label-estimado-dinamico" class="text-xs text-gray-400">Recebimento Estimado</span>
                                     <span id="qtd-estimada" class="text-white font-bold font-mono text-lg">0.00000000</span>
                                 </div>
                                 
-                                <button type="submit" id="btn-comprar" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition duration-200 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex justify-center items-center gap-2 mt-2">
+                                <button type="submit" id="btn-submit-operacao" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition duration-200 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex justify-center items-center gap-2 mt-2">
                                     Comprar a Mercado
                                 </button>
                             </form>

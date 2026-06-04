@@ -11,6 +11,15 @@ data OrdemCompra = OrdemCompra { nome_moeda :: String, ticker_moeda :: String, q
 instance FromJSON OrdemCompra
 instance ToJSON OrdemCompra
 
+-- NOVO TIPO DE DADOS PARA A VENDA
+data OrdemVenda = OrdemVenda { 
+    venda_ticker :: String, 
+    venda_qtd :: Double, 
+    venda_preco :: Double 
+} deriving (Show, Generic)
+instance FromJSON OrdemVenda
+instance ToJSON OrdemVenda
+
 data AtivoCarteira = AtivoCarteira { id_carteira :: Int, nome :: String, ticker :: String, qtd_total :: Double, preco_medio :: Double } deriving (Show, Generic)
 instance FromJSON AtivoCarteira
 instance ToJSON AtivoCarteira
@@ -20,7 +29,6 @@ data ResultadoResponse = ResultadoResponse { resultado :: String } deriving (Sho
 instance FromJSON ResultadoResponse
 instance ToJSON ResultadoResponse
 
--- Novos Tipos para Autenticação e Saldo
 data Usuario = Usuario { saldo_brl :: Double } deriving (Show, Generic)
 instance FromJSON Usuario
 instance ToJSON Usuario
