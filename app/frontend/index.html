@@ -3,69 +3,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Dashboard Pro</title>
+    <title>Nexus Crypto Core</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
-
+    
     <script>
-        // Função para formatar valores em Reais (R$)
         const formatarMoeda = (valor) => {
-            return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            return valor ? valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
         };
 
-        function carregarMoedas() {
-            fetch('http://localhost:8080/cripto')
-                .then(response => response.json())
-                .then(data => {
-                    const tbody = document.getElementById('tabela-moedas');
-                    tbody.innerHTML = ''; 
-                    
-                    let saldoTotal = 0;
-                    let totalAtivos = 0;
+        let precoAoVivoFormulario = 0;
 
-                    data.forEach(moeda => {
-                        // Calcula o total investido nesta moeda específica
-                        const valorTotalMoeda = moeda.quantidade * moeda.preco_medio;
-                        saldoTotal += valorTotalMoeda;
-                        totalAtivos++;
-
-                        const tr = document.createElement('tr');
-                        tr.className = "hover:bg-gray-800 transition duration-150 border-b border-gray-700";
-                        tr.innerHTML = `
-                            <td class="p-4 font-medium text-white flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full bg-emerald-900 text-emerald-400 flex items-center justify-center font-bold text-xs">
-                                    ${moeda.ticker.substring(0,2)}
-                                </div>
-                                ${moeda.nome}
-                            </td>
-                            <td class="p-4 text-gray-300">
-                                <span class="bg-gray-700 text-gray-200 py-1 px-3 rounded-md text-xs font-bold border border-gray-600">${moeda.ticker}</span>
-                            </td>
-                            <td class="p-4 text-gray-300">${moeda.quantidade}</td>
-                            <td class="p-4 text-gray-300">${formatarMoeda(moeda.preco_medio)}</td>
-                            <td class="p-4 font-bold text-emerald-400">${formatarMoeda(valorTotalMoeda)}</td>
-                            <td class="p-4 text-right">
-                                <button onclick="deletarMoeda(${moeda.id_cripto})" class="text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-3 py-1 rounded transition">Excluir</button>
-                            </td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-
-                    // Atualiza os cartões de resumo no topo
-                    document.getElementById('saldo-total').innerText = formatarMoeda(saldoTotal);
-                    document.getElementById('total-ativos').innerText = totalAtivos;
-                });
+        async function buscarCotacaoFormulario() {
+            const ticker = document.querySelector('input[name="ticker"]').value.toUpperCase();
+            const divCotacao = document.getElementById('box-cotacao');
+            const spanCotacao = document.getElementById('valor-cotacao-atual');
+            
+            if (ticker.length >= 2) {
+                try {
+                    const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ticker}BRL`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        precoAoVivoFormulario = parseFloat(data.price);
+                        
+                        divCotacao.classList.remove('hidden');
+                        spanCotacao.innerText = formatarMoeda(precoAoVivoFormulario);
+                        spanCotacao.classList.add('text-emerald-400');
+                        spanCotacao.classList.remove('text-red-400');
+                        
+                        calcularQuantidadeEstimada();
+                    } else {
+                        spanCotacao.innerText = "Moeda não encontrada";
+                        spanCotacao.classList.add('text-red-400');
+                        spanCotacao.classList.remove('text-emerald-400');
+                        precoAoVivoFormulario = 0;
+                    }
+                } catch (e) {}
+            } else {
+                divCotacao.classList.add('hidden');
+                precoAoVivoFormulario = 0;
+            }
         }
 
-        function deletarMoeda(id) {
-            if(confirm("Tem certeza que deseja remover este ativo da carteira?")) {
-                fetch(`http://localhost:8080/cripto/${id}`, { method: 'DELETE' })
+        function calcularQuantidadeEstimada() {
+            const valorInvestir = parseFloat(document.querySelector('input[name="valor_investir"]').value);
+            const spanQtd = document.getElementById('qtd-estimada');
+            
+            if (valorInvestir > 0 && precoAoVivoFormulario > 0) {
+                const qtd = valorInvestir / precoAoVivoFormulario;
+                spanQtd.innerText = qtd.toFixed(8);
+            } else {
+                spanQtd.innerText = "0.00000000";
+            }
+        }
+
+        async function carregarMoedas() {
+            try {
+                const response = await fetch('http://localhost:8080/cripto');
+                const data = await response.json();
+                
+                const tbody = document.getElementById('tabela-moedas');
+                tbody.innerHTML = ''; 
+                
+                let saldoTotalAtual = 0;
+                let lucroPrejuizoTotal = 0;
+                let totalAtivos = 0;
+
+                for (const ativo of data) {
+                    let precoAoVivo = ativo.preco_medio; 
+                    
+                    try {
+                        const binanceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ativo.ticker}BRL`);
+                        if (binanceRes.ok) {
+                            const binanceData = await binanceRes.json();
+                            precoAoVivo = parseFloat(binanceData.price);
+                        }
+                    } catch (error) {}
+
+                    // Usa os novos nomes das variáveis: qtd_total
+                    const valorInvestido = ativo.qtd_total * ativo.preco_medio;
+                    const valorAtual = ativo.qtd_total * precoAoVivo;
+                    const pnlReais = valorAtual - valorInvestido;
+                    const pnlPorcentagem = (pnlReais / valorInvestido) * 100;
+                    
+                    saldoTotalAtual += valorAtual;
+                    lucroPrejuizoTotal += pnlReais;
+                    totalAtivos++;
+
+                    const corPnl = pnlReais >= 0 ? 'text-emerald-400' : 'text-red-500';
+                    const sinalPnl = pnlReais >= 0 ? '+' : '';
+
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-800 transition duration-150 border-b border-gray-700";
+                    tr.innerHTML = `
+                        <td class="p-4 font-medium text-white flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-gray-800 text-gray-300 flex items-center justify-center font-bold text-xs border border-gray-600">
+                                ${ativo.ticker.substring(0,2)}
+                            </div>
+                            ${ativo.nome}
+                        </td>
+                        <td class="p-4 text-gray-300">
+                            <span class="bg-gray-700 text-gray-200 py-1 px-3 rounded-md text-xs font-bold border border-gray-600">${ativo.ticker}</span>
+                        </td>
+                        <td class="p-4 text-gray-300">${ativo.qtd_total.toFixed(6)}</td>
+                        <td class="p-4 text-gray-400 text-xs">
+                            Médio: ${formatarMoeda(ativo.preco_medio)}<br>
+                            <span class="text-white text-sm font-semibold">Atual: ${formatarMoeda(precoAoVivo)}</span>
+                        </td>
+                        <td class="p-4 font-bold ${corPnl}">
+                            ${sinalPnl}${formatarMoeda(pnlReais)} <br>
+                            <span class="text-xs">(${sinalPnl}${pnlPorcentagem.toFixed(2)}%)</span>
+                        </td>
+                        <td class="p-4 font-bold text-white">${formatarMoeda(valorAtual)}</td>
+                        <td class="p-4 text-right">
+                            <button onclick="deletarMoeda(${ativo.id_carteira})" class="text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-3 py-1 rounded transition">Liquidar</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+
+                const corLucroTotal = lucroPrejuizoTotal >= 0 ? 'text-emerald-400' : 'text-red-500';
+                const sinalLucroTotal = lucroPrejuizoTotal >= 0 ? '+' : '';
+                
+                document.getElementById('saldo-total').innerHTML = `
+                    ${formatarMoeda(saldoTotalAtual)} 
+                    <span class="text-sm ${corLucroTotal} font-normal block mt-1">${sinalLucroTotal}${formatarMoeda(lucroPrejuizoTotal)} de rendimento</span>
+                `;
+                document.getElementById('total-ativos').innerText = totalAtivos;
+
+            } catch (error) {
+                console.error("Erro de conexão:", error);
+            }
+        }
+
+        function deletarMoeda(idCarteira) {
+            if(confirm("Deseja liquidar esta posição 100%?")) {
+                fetch(`http://localhost:8080/cripto/${idCarteira}`, { method: 'DELETE' })
                     .then(() => carregarMoedas());
             }
         }
 
-        window.onload = carregarMoedas;
+        function salvarCripto(event) {
+            event.preventDefault(); 
+            
+            const ticker = document.querySelector('input[name="ticker"]').value.toUpperCase();
+            const nome = document.querySelector('input[name="nome"]').value;
+            const valorInvestido = parseFloat(document.querySelector('input[name="valor_investir"]').value);
+            
+            if (precoAoVivoFormulario <= 0) {
+                alert("Aguarde a cotação ao vivo carregar ou verifique se a sigla está correta.");
+                return;
+            }
+
+            const quantidadeComprada = valorInvestido / precoAoVivoFormulario;
+
+            // Objeto atualizado com as chaves exatas do Haskell (OrdemCompra)
+            const ordem = {
+                nome_moeda: nome,
+                ticker_moeda: ticker,
+                quantidade: quantidadeComprada,
+                preco_compra: precoAoVivoFormulario 
+            };
+
+            fetch('http://localhost:8080/cripto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(ordem)
+            }).then(() => {
+                document.getElementById('formCripto').reset();
+                document.getElementById('box-cotacao').classList.add('hidden');
+                document.getElementById('qtd-estimada').innerText = "0.00000000";
+                
+                alert(`🚀 Compra executada!\n\nVocê investiu: ${formatarMoeda(valorInvestido)}\nPreço executado: ${formatarMoeda(precoAoVivoFormulario)}\nRecebeu: ${quantidadeComprada.toFixed(8)} ${ticker}`);
+                carregarMoedas();
+            });
+        }
+
+        window.onload = () => {
+            carregarMoedas();
+            setInterval(carregarMoedas, 10000); 
+        };
     </script>
 </head>
 <body class="bg-gray-950 text-gray-100 font-sans min-h-screen">
@@ -74,10 +190,10 @@
         <div class="max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-2">
                 <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
-                <h1 class="text-xl font-bold tracking-wider text-white">CRYPTO<span class="text-emerald-500">PORTFOLIO</span></h1>
+                <h1 class="text-xl font-bold tracking-wider text-white">NEXUS<span class="text-emerald-500">CORE</span></h1>
             </div>
             <div class="flex items-center gap-4 text-sm text-gray-400">
-                <span>Status do Servidor: <span class="text-emerald-400">Online</span></span>
+                <span>Status da Engine: <span class="text-emerald-400 font-mono">Operacional</span></span>
             </div>
         </div>
     </header>
@@ -87,12 +203,12 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div class="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-lg relative overflow-hidden">
                 <div class="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full"></div>
-                <h3 class="text-gray-400 text-sm font-semibold mb-1">Patrimônio Total Investido</h3>
+                <h3 class="text-gray-400 text-sm font-semibold mb-1">Patrimônio Líquido</h3>
                 <p id="saldo-total" class="text-3xl font-bold text-white">R$ 0,00</p>
             </div>
             <div class="bg-gray-900 p-6 rounded-xl border border-gray-800 shadow-lg relative overflow-hidden">
                 <div class="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full"></div>
-                <h3 class="text-gray-400 text-sm font-semibold mb-1">Ativos na Carteira</h3>
+                <h3 class="text-gray-400 text-sm font-semibold mb-1">Alocação de Ativos</h3>
                 <p id="total-ativos" class="text-3xl font-bold text-white">0</p>
             </div>
         </div>
@@ -101,40 +217,38 @@
             
             <div class="lg:col-span-1">
                 <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-800 sticky top-24">
-                    <h2 class="text-lg font-bold mb-4 text-white flex items-center gap-2">
-                        <span>➕</span> Novo Aporte
+                    <h2 class="text-lg font-bold mb-4 text-white flex items-center gap-2 border-b border-gray-800 pb-3">
+                        Terminal de Compra
                     </h2>
                     
-                    <form id="formCripto" hx-ext="json-enc" class="flex flex-col gap-4">
-                        <input type="hidden" name="id_cripto" value="0">
+                    <form id="formCripto" onsubmit="salvarCripto(event)" class="flex flex-col gap-4 mt-4">
+                        
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Ticker do Ativo</label>
+                            <input type="text" name="ticker" onkeyup="buscarCotacaoFormulario()" placeholder="Ex: BTC, SOL, ETH" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-3 focus:outline-none focus:border-emerald-500 text-lg uppercase" autocomplete="off" required>
+                        </div>
+                        
+                        <div id="box-cotacao" class="hidden bg-gray-950 border border-gray-800 p-3 rounded-lg flex justify-between items-center">
+                            <span class="text-xs text-gray-400 uppercase font-semibold">Cotação Atual (Market)</span>
+                            <span id="valor-cotacao-atual" class="font-bold">R$ 0,00</span>
+                        </div>
 
                         <div>
                             <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Nome do Ativo</label>
-                            <input type="text" name="nome" placeholder="Ex: Solana" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500" required>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Ticker</label>
-                            <input type="text" name="ticker" placeholder="Ex: SOL" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500" required>
+                            <input type="text" name="nome" placeholder="Ex: Bitcoin" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-3 focus:outline-none focus:border-emerald-500" required>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Qtd</label>
-                                <input type="number" step="any" name="quantidade" placeholder="0.00" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500" required>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Preço Médio</label>
-                                <input type="number" step="any" name="preco_medio" placeholder="R$ 0,00" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500" required>
-                            </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Montante (BRL)</label>
+                            <input type="number" step="any" name="valor_investir" onkeyup="calcularQuantidadeEstimada()" placeholder="R$ 0,00" class="w-full bg-gray-950 text-white border border-gray-700 rounded-lg p-3 focus:outline-none focus:border-emerald-500 text-lg" required>
+                        </div>
+
+                        <div class="text-right text-sm text-gray-400">
+                            Execução estimada: <span id="qtd-estimada" class="text-white font-bold font-mono">0.00000000</span>
                         </div>
                         
-                        <button type="submit" 
-                                hx-post="http://localhost:8080/cripto"
-                                hx-swap="none"
-                                hx-on::after-request="carregarMoedas(); document.getElementById('formCripto').reset();"
-                                class="mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 w-full shadow-lg shadow-emerald-900/20">
-                            Registrar Compra
+                        <button type="submit" class="mt-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 px-6 rounded-lg transition duration-200 w-full shadow-lg shadow-emerald-900/20 text-lg">
+                            Confirmar Ordem
                         </button>
                     </form>
                 </div>
@@ -143,7 +257,7 @@
             <div class="lg:col-span-2">
                 <div class="bg-gray-900 rounded-xl shadow-lg border border-gray-800 overflow-hidden">
                     <div class="p-6 border-b border-gray-800 flex justify-between items-center">
-                        <h2 class="text-lg font-bold text-white">Seus Ativos</h2>
+                        <h2 class="text-lg font-bold text-white">Holdings (Carteira)</h2>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-sm">
@@ -152,13 +266,14 @@
                                     <th class="p-4 font-semibold">Ativo</th>
                                     <th class="p-4 font-semibold">Ticker</th>
                                     <th class="p-4 font-semibold">Qtd</th>
-                                    <th class="p-4 font-semibold">Preço Médio</th>
-                                    <th class="p-4 font-semibold text-emerald-400">Total (R$)</th>
+                                    <th class="p-4 font-semibold">Preço</th>
+                                    <th class="p-4 font-semibold text-emerald-400">PNL</th>
+                                    <th class="p-4 font-semibold">Net Worth (R$)</th>
                                     <th class="p-4 font-semibold text-right">Ação</th>
                                 </tr>
                             </thead>
                             <tbody id="tabela-moedas" class="divide-y divide-gray-800 bg-gray-900">
-                                </tbody>
+                            </tbody>
                         </table>
                     </div>
                 </div>
